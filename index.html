@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My World — Photo Gallery</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="bgLayer" class="bg-layer" aria-hidden="true"></div>
+
+  <!-- Auth screen (shown when signed out) -->
+  <div id="authScreen" class="auth-screen" hidden>
+    <div class="auth-card">
+      <div class="auth-brand"><span aria-hidden="true">🌍</span> My World</div>
+      <p class="auth-sub">Sign in to view the gallery</p>
+      <div class="auth-tabs">
+        <button type="button" class="auth-tab active" data-tab="login">Log in</button>
+        <button type="button" class="auth-tab" data-tab="register">Register</button>
+      </div>
+
+      <form id="loginForm" class="auth-form">
+        <input type="email" id="loginEmail" placeholder="Email" autocomplete="email" required />
+        <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password" required />
+        <button class="btn btn-primary" type="submit">Log in</button>
+        <button type="button" id="forgotBtn" class="auth-link">Forgot password?</button>
+      </form>
+
+      <form id="registerForm" class="auth-form" hidden>
+        <input type="email" id="regEmail" placeholder="Email" autocomplete="email" required />
+        <input type="password" id="regPassword" placeholder="Password (min 6 chars)" autocomplete="new-password" minlength="6" required />
+        <input type="password" id="regConfirm" placeholder="Confirm password" autocomplete="new-password" minlength="6" required />
+        <button class="btn btn-primary" type="submit">Create account</button>
+      </form>
+
+      <p id="authError" class="auth-error" role="alert"></p>
+      <p class="auth-hint">New accounts get <strong>view-only</strong> access.</p>
+    </div>
+  </div>
+
+  <header class="app-header">
+    <div class="brand">
+      <button id="menuToggle" class="icon-btn menu-toggle" aria-label="Toggle folders">☰</button>
+      <span class="brand-mark" aria-hidden="true">🌍</span>
+      <div>
+        <h1>My World</h1>
+        <p class="tagline">Upload and manage your photos</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <div class="search-box">
+        <input type="search" id="searchInput" placeholder="Search photos…" aria-label="Search photos" />
+      </div>
+      <select id="sortSelect" aria-label="Sort photos">
+        <option value="newest">Newest first</option>
+        <option value="oldest">Oldest first</option>
+        <option value="name">Name A–Z</option>
+        <option value="size">Largest first</option>
+      </select>
+      <button id="uploadBtn" class="btn btn-primary admin-only" type="button">+ Upload</button>
+      <div id="userBox" class="user-box" hidden>
+        <span id="userEmail" class="user-email"></span>
+        <span id="roleBadge" class="role-badge"></span>
+        <button id="logoutBtn" class="btn btn-ghost" type="button">Log out</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- Folders sidebar -->
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-head">
+        <span>Folders</span>
+        <button id="newFolderBtn" class="icon-btn admin-only" title="New folder" aria-label="New folder">＋</button>
+      </div>
+      <ul id="folderList" class="folder-list"></ul>
+    </aside>
+
+    <main>
+      <!-- Drop zone / upload area -->
+      <section
+        id="dropZone"
+        class="drop-zone admin-only"
+        aria-label="Upload area. Click to browse or drag and drop images."
+        tabindex="0"
+      >
+        <div class="drop-inner">
+          <div class="drop-icon" aria-hidden="true">🖼️</div>
+          <p class="drop-title">Drag &amp; drop photos here</p>
+          <p class="drop-sub">
+            uploading to <strong id="dropTarget">All Photos</strong> —
+            <span class="link">click to browse</span>
+          </p>
+        </div>
+        <input type="file" id="fileInput" accept="image/*" multiple hidden />
+      </section>
+
+      <div class="toolbar">
+        <div class="stats">
+          <span id="currentFolderName">All Photos</span>
+          <span class="dot">•</span>
+          <span id="photoCount">0 photos</span>
+          <span class="dot">•</span>
+          <span id="totalSize">0 KB</span>
+        </div>
+        <button id="clearAllBtn" class="btn btn-ghost admin-only" type="button">Clear folder</button>
+        <button id="resetBgBtn" class="btn btn-ghost" type="button" hidden>Reset background</button>
+      </div>
+
+      <div id="configBanner" class="banner" hidden>
+        ⚠️ Firebase is not configured yet. Open <code>firebase-config.js</code> and add your
+        project values to enable uploads and cloud sync.
+      </div>
+
+      <!-- Empty state -->
+      <div id="emptyState" class="empty-state">
+        <div class="empty-icon" aria-hidden="true">📷</div>
+        <h2>No photos here yet</h2>
+        <p>Upload your first photo to start building your world.</p>
+      </div>
+
+      <!-- Loading -->
+      <div id="loadingState" class="empty-state" hidden>
+        <div class="empty-icon" aria-hidden="true">⏳</div>
+        <h2>Loading…</h2>
+      </div>
+
+      <!-- Gallery grid -->
+      <section id="gallery" class="gallery" aria-live="polite"></section>
+    </main>
+  </div>
+
+  <!-- Lightbox / detail view -->
+  <div id="lightbox" class="lightbox" hidden>
+    <button class="lightbox-close" id="lightboxClose" aria-label="Close">&times;</button>
+    <button class="lightbox-nav prev" id="lightboxPrev" aria-label="Previous">&#10094;</button>
+    <figure class="lightbox-figure">
+      <img id="lightboxImg" alt="" />
+      <figcaption id="lightboxCaption"></figcaption>
+    </figure>
+    <button class="lightbox-nav next" id="lightboxNext" aria-label="Next">&#10095;</button>
+  </div>
+
+  <!-- Card template -->
+  <template id="cardTemplate">
+    <article class="card">
+      <div class="card-media">
+        <img alt="" loading="lazy" />
+        <div class="card-progress" hidden><span></span></div>
+      </div>
+      <div class="card-body">
+        <input class="card-name" type="text" aria-label="Photo name" />
+        <div class="card-meta"></div>
+      </div>
+      <div class="card-actions">
+        <button class="icon-btn view" title="View" aria-label="View">🔍</button>
+        <button class="icon-btn setbg" title="Set as page background" aria-label="Set as page background">🌄</button>
+        <select class="card-move admin-only" title="Move to folder" aria-label="Move to folder"></select>
+        <button class="icon-btn download" title="Download" aria-label="Download">⬇️</button>
+        <button class="icon-btn delete admin-only" title="Delete" aria-label="Delete">🗑️</button>
+      </div>
+    </article>
+  </template>
+
+  <!-- Folder list item template -->
+  <template id="folderTemplate">
+    <li class="folder-item">
+      <button class="folder-btn">
+        <span class="folder-icon">📁</span>
+        <span class="folder-name"></span>
+        <span class="folder-count"></span>
+      </button>
+      <button class="folder-del icon-btn admin-only" title="Delete folder" aria-label="Delete folder">🗑️</button>
+    </li>
+  </template>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

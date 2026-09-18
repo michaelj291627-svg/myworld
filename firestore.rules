@@ -1,0 +1,27 @@
+rules_version = '2';
+
+// Firestore security rules for "My World".
+// Signed-in users can READ; only the admin email can WRITE.
+// Keep the admin email in sync with ADMIN_EMAILS in firebase-config.js.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email == 'michaelvarghees@gmail.com';
+    }
+
+    match /photos/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /folders/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+  }
+}

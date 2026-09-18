@@ -1,0 +1,16 @@
+rules_version = '2';
+
+// Storage security rules for "My World".
+// Signed-in users can READ images; only the admin email can WRITE (upload/delete).
+// Keep the admin email in sync with ADMIN_EMAILS in firebase-config.js.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /photos/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.email == 'michaelvarghees@gmail.com'
+        && request.resource.size < 15 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+  }
+}
