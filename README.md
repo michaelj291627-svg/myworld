@@ -4,7 +4,8 @@ A simple, cloud-backed photo gallery. Upload, organize into **folders**, search,
 sort, rename, and delete photos — all stored in **Firebase** and hosted on **Vercel**.
 
 - **UI**: static HTML / CSS / vanilla JS (no build step)
-- **Images**: Firebase **Storage**
+- **Images**: stored in Firestore as compressed Base64 (Firebase Storage is paid,
+  so images are resized in the browser to fit Firestore's ~1MB document limit)
 - **Metadata & folders**: Firebase **Firestore**
 - **Hosting**: Vercel
 
@@ -27,16 +28,15 @@ sort, rename, and delete photos — all stored in **Firebase** and hosted on **V
 3. Paste them into [`firebase-config.js`](firebase-config.js) (replace `REPLACE_ME`).
 4. In the console, enable:
    - **Authentication → Sign-in method → Email/Password**
-   - **Firestore Database** and **Storage**
-5. **Set the admin email** in three places so they match:
+   - **Firestore Database** (Storage is not needed — images are stored in Firestore)
+5. **Set the admin email** in two places so they match:
    - `ADMIN_EMAILS` in [`firebase-config.js`](firebase-config.js)
    - `isAdmin()` email in [`firestore.rules`](firestore.rules)
-   - the email check in [`storage.rules`](storage.rules)
 6. Deploy the rules:
    ```bash
    npm i -g firebase-tools
    firebase login
-   firebase deploy --only firestore:rules,storage
+   firebase deploy --only firestore:rules
    ```
 
 ### Creating the admin account

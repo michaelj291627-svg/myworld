@@ -1,10 +1,10 @@
 /**
  * My World — cloud photo gallery.
  *
- * Storage model:
- *   - Firebase Storage        → the actual image files (photos/{id}/{filename})
- *   - Firestore "photos"      → one doc per photo (name, folderId, url, size…)
- *   - Firestore "folders"     → one doc per user-created folder
+ * Storage model (Firebase Storage is paid, so images live in Firestore):
+ *   - Firestore "photos"   → one doc per photo; the image is a compressed
+ *                            Base64 data URL kept under Firestore's ~1MB limit.
+ *   - Firestore "folders"  → one doc per user-created folder.
  *
  * "All Photos" is a virtual folder (folderId === null) that shows everything.
  */
@@ -23,13 +23,6 @@ import {
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
-  getStorage,
-  ref as storageRef,
-  uploadBytesResumable,
-  getDownloadURL,
-  deleteObject,
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
-import {
   getAuth,
   onAuthStateChanged,
   createUserWithEmailAndPassword,
@@ -43,19 +36,17 @@ import { firebaseConfig, isConfigured, isAdminEmail } from "./firebase-config.js
 /* ---------- Firebase init ---------- */
 
 let db = null;
-let storage = null;
 let auth = null;
 if (isConfigured) {
   const app = initializeApp(firebaseConfig);
   db = getFirestore(app);
-  storage = getStorage(app);
   auth = getAuth(app);
 }
 
 /* ---------- State & DOM references ---------- */
 
 let folders = []; // [{id, name, createdAt}]
-let photos = []; // [{id, name, folderId, storagePath, url, size, type, createdAt}]
+let photos = []; // [{id, name, folderId, url(dataURL), size, type, createdAt}]
 let currentFolderId = null; // null = "All Photos"
 let visiblePhotos = [];
 let currentIndex = -1;
@@ -63,8 +54,6 @@ let currentUser = null;
 let isAdmin = false;
 
 const el = {
-  dropZone: document.getElementById("dropZone"),
-  dropTarget: document.getElementById("dropTarget"),
   fileInput: document.getElementById("fileInput"),
   uploadBtn: document.getElementById("uploadBtn"),
   gallery: document.getElementById("gallery"),
@@ -105,6 +94,7 @@ const el = {
   lightboxImg: document.getElementById("lightboxImg"),
   lightboxCaption: document.getElementById("lightboxCaption"),
   lightboxClose: document.getElementById("lightboxClose"),
+  lightboxDelete: document.getElementById("lightboxDelete"),
   lightboxPrev: document.getElementById("lightboxPrev"),
   lightboxNext: document.getElementById("lightboxNext"),
 };
@@ -148,6 +138,34 @@ function requireAdmin() {
 function folderName(id) {
   if (id === null) return "All Photos";
   return folders.find((f) => f.id === id)?.name ?? "All Photos";
+}
+
+/** Reject after `ms` if the promise hasn't settled, so the UI can recover. */
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms)),
+  ]);
+}
+
+/** Share the actual image via the device share sheet (WhatsApp etc.). */
+async function shareToWhatsApp(photo) {
+  try {
+    const blob = await (await fetch(photo.url)).blob();
+    const file = new File([blob], `${photo.name}.jpg`, { type: blob.type || "image/jpeg" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: photo.name, text: photo.name });
+      return;
+    }
+    // Desktop can't attach a local image to WhatsApp; open a chat with the caption.
+    window.open(`https://wa.me/?text=${encodeURIComponent(photo.name)}`, "_blank", "noopener");
+    toast("Tip: use a phone to send the image itself to WhatsApp.");
+  } catch (err) {
+    if (err?.name !== "AbortError") {
+      console.error(err);
+      toast("Could not share this photo.");
+    }
+  }
 }
 
 /* ---------- Page background ---------- */
@@ -203,13 +221,20 @@ async function refresh() {
   }
   el.loadingState.hidden = false;
   el.emptyState.style.display = "none";
+  el.configBanner.hidden = true;
   try {
-    await Promise.all([loadFolders(), loadPhotos()]);
+    // Time-box the read so the UI never spins forever if Firestore isn't set up.
+    await withTimeout(Promise.all([loadFolders(), loadPhotos()]), 12000);
     renderFolders();
     render();
   } catch (err) {
     console.error(err);
-    toast("Could not load data. Check your Firebase config and rules.");
+    el.configBanner.hidden = false;
+    el.configBanner.innerHTML =
+      "⚠️ Couldn't reach Firestore. In the Firebase console create the " +
+      "<strong>Firestore Database</strong> (test mode), then reload. " +
+      "If it exists, deploy the rules so reads are allowed.";
+    el.emptyState.style.display = "block";
   } finally {
     el.loadingState.hidden = true;
   }
@@ -217,45 +242,73 @@ async function refresh() {
 
 /* ---------- Upload ---------- */
 
-function uploadOne(file, folderId) {
+const MAX_DOC_BYTES = 950000; // stay safely under Firestore's ~1,048,576 byte doc limit
+
+function loadImage(file) {
   return new Promise((resolve, reject) => {
-    const id = crypto.randomUUID();
-    const path = `photos/${id}/${file.name}`;
-    const task = uploadBytesResumable(storageRef(storage, path), file, {
-      contentType: file.type,
-    });
-
-    // Optimistic placeholder card so the user sees progress immediately.
-    const placeholder = renderUploadingCard(file);
-
-    task.on(
-      "state_changed",
-      (snap) => {
-        const pct = (snap.bytesTransferred / snap.totalBytes) * 100;
-        placeholder?.setProgress(pct);
-      },
-      (err) => {
-        placeholder?.remove();
-        reject(err);
-      },
-      async () => {
-        const url = await getDownloadURL(task.snapshot.ref);
-        const data = {
-          name: file.name.replace(/\.[^.]+$/, ""),
-          folderId: folderId ?? null,
-          storagePath: path,
-          url,
-          size: file.size,
-          type: file.type,
-          createdAt: serverTimestamp(),
-        };
-        const added = await addDoc(collection(db, "photos"), data);
-        photos.unshift({ id: added.id, ...data, createdAt: Date.now() });
-        placeholder?.remove();
-        resolve();
-      }
-    );
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Could not read image"));
+    };
+    img.src = url;
   });
+}
+
+function drawToDataUrl(img, maxDim, quality) {
+  const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(img.width * scale));
+  canvas.height = Math.max(1, Math.round(img.height * scale));
+  canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+function approxBytes(dataUrl) {
+  const comma = dataUrl.indexOf(",");
+  return Math.floor((dataUrl.length - comma - 1) * 0.75);
+}
+
+/** Resize + compress in the browser until the Base64 fits in one Firestore doc. */
+async function compressToDataUrl(file) {
+  const img = await loadImage(file);
+  let maxDim = 1600;
+  let quality = 0.82;
+  let dataUrl = drawToDataUrl(img, maxDim, quality);
+  while (approxBytes(dataUrl) > MAX_DOC_BYTES && (quality > 0.4 || maxDim > 600)) {
+    if (quality > 0.5) quality -= 0.1;
+    else maxDim = Math.round(maxDim * 0.8);
+    dataUrl = drawToDataUrl(img, maxDim, quality);
+  }
+  return dataUrl;
+}
+
+async function uploadOne(file, folderId) {
+  const placeholder = renderUploadingCard(file);
+  try {
+    placeholder?.setProgress(25);
+    const dataUrl = await compressToDataUrl(file);
+    if (approxBytes(dataUrl) > MAX_DOC_BYTES) throw new Error("too-large");
+    placeholder?.setProgress(70);
+    const data = {
+      name: file.name.replace(/\.[^.]+$/, ""),
+      folderId: folderId ?? null,
+      url: dataUrl,
+      size: approxBytes(dataUrl),
+      type: "image/jpeg",
+      createdAt: serverTimestamp(),
+    };
+    const added = await addDoc(collection(db, "photos"), data);
+    photos.unshift({ id: added.id, ...data, createdAt: Date.now() });
+    placeholder?.setProgress(100);
+  } finally {
+    placeholder?.remove();
+  }
 }
 
 async function handleFiles(fileList) {
@@ -275,7 +328,11 @@ async function handleFiles(fileList) {
     toast("Upload complete");
   } catch (err) {
     console.error(err);
-    toast("Upload failed. Check Storage rules.");
+    toast(
+      err?.message === "too-large"
+        ? "A photo is too large even after compression."
+        : "Upload failed. Please try again."
+    );
   }
   render();
   renderFolders();
@@ -326,7 +383,6 @@ function render() {
   const total = photos.filter((p) => currentFolderId === null || p.folderId === currentFolderId);
   el.emptyState.style.display = visiblePhotos.length === 0 ? "block" : "none";
   el.currentFolderName.textContent = folderName(currentFolderId);
-  el.dropTarget.textContent = folderName(currentFolderId);
 
   for (let i = 0; i < visiblePhotos.length; i++) {
     const photo = visiblePhotos[i];
@@ -346,6 +402,7 @@ function render() {
     node.querySelector(".card-media").addEventListener("click", () => openLightbox(i));
     node.querySelector(".view").addEventListener("click", () => openLightbox(i));
     node.querySelector(".setbg").addEventListener("click", () => setBackground(photo));
+    node.querySelector(".share").addEventListener("click", () => shareToWhatsApp(photo));
     node.querySelector(".download").addEventListener("click", () => downloadPhoto(photo));
     node.querySelector(".delete").addEventListener("click", () => deletePhoto(photo));
 
@@ -494,9 +551,6 @@ async function deletePhoto(photo) {
   if (!confirm(`Delete "${photo.name}"?`)) return;
   try {
     await deleteDoc(doc(db, "photos", photo.id));
-    if (photo.storagePath) {
-      await deleteObject(storageRef(storage, photo.storagePath)).catch(() => {});
-    }
     photos = photos.filter((p) => p.id !== photo.id);
     toast("Photo deleted");
     render();
@@ -516,7 +570,6 @@ async function clearFolder() {
   try {
     for (const p of target) {
       await deleteDoc(doc(db, "photos", p.id));
-      if (p.storagePath) await deleteObject(storageRef(storage, p.storagePath)).catch(() => {});
     }
     const ids = new Set(target.map((p) => p.id));
     photos = photos.filter((p) => !ids.has(p.id));
@@ -558,36 +611,28 @@ function navLightbox(step) {
   showLightboxPhoto();
 }
 
+/** Delete the photo currently open in the lightbox, then advance or close. */
+async function deleteFromLightbox() {
+  const photo = visiblePhotos[currentIndex];
+  if (!photo) return;
+  const before = visiblePhotos.length;
+  await deletePhoto(photo); // handles confirm + Firestore delete + re-render
+  if (visiblePhotos.length === before) return; // cancelled or failed
+  if (visiblePhotos.length === 0) {
+    closeLightbox();
+  } else {
+    currentIndex = Math.min(currentIndex, visiblePhotos.length - 1);
+    showLightboxPhoto();
+  }
+}
+
 /* ---------- Event wiring ---------- */
 
 el.uploadBtn.addEventListener("click", () => el.fileInput.click());
-el.dropZone.addEventListener("click", () => el.fileInput.click());
-el.dropZone.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" || e.key === " ") {
-    e.preventDefault();
-    el.fileInput.click();
-  }
-});
 
 el.fileInput.addEventListener("change", (e) => {
   handleFiles(e.target.files);
   el.fileInput.value = "";
-});
-
-["dragenter", "dragover"].forEach((evt) =>
-  el.dropZone.addEventListener(evt, (e) => {
-    e.preventDefault();
-    el.dropZone.classList.add("dragover");
-  })
-);
-["dragleave", "drop"].forEach((evt) =>
-  el.dropZone.addEventListener(evt, (e) => {
-    e.preventDefault();
-    el.dropZone.classList.remove("dragover");
-  })
-);
-el.dropZone.addEventListener("drop", (e) => {
-  if (e.dataTransfer?.files?.length) handleFiles(e.dataTransfer.files);
 });
 
 el.searchInput.addEventListener("input", render);
@@ -598,6 +643,7 @@ el.newFolderBtn.addEventListener("click", createFolder);
 el.menuToggle.addEventListener("click", () => el.sidebar.classList.toggle("open"));
 
 el.lightboxClose.addEventListener("click", closeLightbox);
+el.lightboxDelete.addEventListener("click", deleteFromLightbox);
 el.lightboxPrev.addEventListener("click", () => navLightbox(-1));
 el.lightboxNext.addEventListener("click", () => navLightbox(1));
 el.lightbox.addEventListener("click", (e) => {
