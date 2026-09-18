@@ -14,7 +14,9 @@ import {
   getFirestore,
   collection,
   addDoc,
+  getDoc,
   getDocs,
+  setDoc,
   deleteDoc,
   updateDoc,
   doc,
@@ -52,6 +54,8 @@ let visiblePhotos = [];
 let currentIndex = -1;
 let currentUser = null;
 let isAdmin = false;
+let allUsers = [];
+let isRegistering = false;
 
 const el = {
   fileInput: document.getElementById("fileInput"),
@@ -90,6 +94,15 @@ const el = {
   userEmail: document.getElementById("userEmail"),
   roleBadge: document.getElementById("roleBadge"),
   logoutBtn: document.getElementById("logoutBtn"),
+  homeBtn: document.getElementById("homeBtn"),
+  welcomeScreen: document.getElementById("welcomeScreen"),
+  welcomeEmail: document.getElementById("welcomeEmail"),
+  welcomeRole: document.getElementById("welcomeRole"),
+  welcomeLogout: document.getElementById("welcomeLogout"),
+  goToPhotosBtn: document.getElementById("goToPhotosBtn"),
+  refreshUsersBtn: document.getElementById("refreshUsersBtn"),
+  userList: document.getElementById("userList"),
+  userRowTemplate: document.getElementById("userRowTemplate"),
   lightbox: document.getElementById("lightbox"),
   lightboxImg: document.getElementById("lightboxImg"),
   lightboxCaption: document.getElementById("lightboxCaption"),
@@ -690,6 +703,113 @@ function updateAuthUI() {
     el.userEmail.textContent = currentUser.email;
     el.roleBadge.textContent = isAdmin ? "Admin" : "Viewer";
     el.roleBadge.classList.toggle("admin", isAdmin);
+    el.welcomeEmail.textContent = currentUser.email;
+    el.welcomeRole.textContent = isAdmin ? "Admin" : "Viewer";
+    el.welcomeRole.classList.toggle("admin", isAdmin);
+  }
+}
+
+/* ---------- Welcome navigation ---------- */
+
+function showWelcome() {
+  el.welcomeScreen.hidden = false;
+  if (isAdmin) loadUsers();
+}
+
+function goToPhotos() {
+  el.welcomeScreen.hidden = true;
+}
+
+/* ---------- User accounts (admin) ---------- */
+
+/** Read the caller's profile; create it during registration or for the primary admin. */
+async function ensureUserProfile(user) {
+  const ref = doc(db, "users", user.uid);
+  const snap = await getDoc(ref);
+  if (snap.exists()) return { id: user.uid, ...snap.data() };
+  if (isRegistering || isAdminEmail(user.email)) {
+    const data = {
+      email: user.email,
+      role: isAdminEmail(user.email) ? "admin" : "viewer",
+      createdAt: serverTimestamp(),
+    };
+    await setDoc(ref, data);
+    isRegistering = false;
+    return { id: user.uid, ...data };
+  }
+  return null; // profile was deleted by an admin
+}
+
+async function loadUsers() {
+  if (!isAdmin) return;
+  try {
+    const snap = await getDocs(query(collection(db, "users"), orderBy("email")));
+    allUsers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    renderUserList();
+  } catch (err) {
+    console.error(err);
+    toast("Couldn't load users.");
+  }
+}
+
+function renderUserList() {
+  el.userList.innerHTML = "";
+  for (const u of allUsers) {
+    const node = el.userRowTemplate.content.firstElementChild.cloneNode(true);
+    const roleBadge = node.querySelector(".user-row-role");
+    const toggle = node.querySelector(".user-role-toggle");
+    const del = node.querySelector(".user-delete");
+    const admin = u.role === "admin";
+    const isSelf = currentUser && u.id === currentUser.uid;
+    const isPrimary = isAdminEmail(u.email);
+
+    node.querySelector(".user-row-email").textContent = u.email;
+    roleBadge.textContent = admin ? "Admin" : "Viewer";
+    roleBadge.classList.toggle("admin", admin);
+    toggle.textContent = admin ? "Make viewer" : "Make admin";
+
+    // The primary admin can't be demoted or deleted; you can't delete yourself.
+    toggle.disabled = isPrimary;
+    del.disabled = isPrimary || isSelf;
+
+    toggle.addEventListener("click", () => changeUserRole(u, admin ? "viewer" : "admin"));
+    del.addEventListener("click", () => deleteUser(u));
+    el.userList.appendChild(node);
+  }
+}
+
+async function changeUserRole(u, role) {
+  if (!isAdmin) return;
+  try {
+    await updateDoc(doc(db, "users", u.id), { role });
+    u.role = role;
+    renderUserList();
+    toast(`${u.email} is now ${role}`);
+  } catch (err) {
+    console.error(err);
+    toast("Could not update role.");
+  }
+}
+
+async function deleteUser(u) {
+  if (!isAdmin) return;
+  if (currentUser && u.id === currentUser.uid) {
+    toast("You can't delete your own account.");
+    return;
+  }
+  if (isAdminEmail(u.email)) {
+    toast("The primary admin can't be deleted.");
+    return;
+  }
+  if (!confirm(`Delete account ${u.email}? They will lose access to My World.`)) return;
+  try {
+    await deleteDoc(doc(db, "users", u.id));
+    allUsers = allUsers.filter((x) => x.id !== u.id);
+    renderUserList();
+    toast("Account removed");
+  } catch (err) {
+    console.error(err);
+    toast("Could not delete account.");
   }
 }
 
@@ -716,9 +836,11 @@ el.registerForm.addEventListener("submit", async (e) => {
     return;
   }
   try {
+    isRegistering = true;
     await createUserWithEmailAndPassword(auth, el.regEmail.value.trim(), el.regPassword.value);
     el.registerForm.reset();
   } catch (err) {
+    isRegistering = false;
     el.authError.textContent = friendlyAuthError(err.code);
   }
 });
@@ -731,6 +853,11 @@ el.logoutBtn.addEventListener("click", async () => {
     toast("Could not log out.");
   }
 });
+
+el.welcomeLogout.addEventListener("click", () => el.logoutBtn.click());
+el.goToPhotosBtn.addEventListener("click", goToPhotos);
+el.homeBtn.addEventListener("click", showWelcome);
+el.refreshUsersBtn.addEventListener("click", loadUsers);
 
 el.forgotBtn.addEventListener("click", async () => {
   const email = el.loginEmail.value.trim();
@@ -751,18 +878,37 @@ el.forgotBtn.addEventListener("click", async () => {
 /* ---------- Boot ---------- */
 
 if (isConfigured) {
-  onAuthStateChanged(auth, (user) => {
+  onAuthStateChanged(auth, async (user) => {
     currentUser = user;
-    isAdmin = !!user && isAdminEmail(user.email);
-    updateAuthUI();
     if (user) {
+      let profile;
+      try {
+        profile = await ensureUserProfile(user);
+      } catch (err) {
+        console.error(err);
+        toast("Couldn't load your account.");
+        return;
+      }
+      if (!profile) {
+        alert("Your account has been removed by the admin.");
+        await signOut(auth);
+        return;
+      }
+      isAdmin = profile.role === "admin" || isAdminEmail(user.email);
+      updateAuthUI();
+      showWelcome();
       refresh();
     } else {
+      isAdmin = false;
+      allUsers = [];
       photos = [];
       folders = [];
       currentFolderId = null;
       el.gallery.innerHTML = "";
       el.folderList.innerHTML = "";
+      el.userList.innerHTML = "";
+      el.welcomeScreen.hidden = true;
+      updateAuthUI();
       showAuthTab("login");
     }
   });

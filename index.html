@@ -39,6 +39,31 @@
     </div>
   </div>
 
+  <!-- Welcome landing page (shown after login) -->
+  <div id="welcomeScreen" class="welcome-screen" hidden>
+    <div class="welcome-inner">
+      <div class="welcome-top">
+        <div class="welcome-brand"><span aria-hidden="true">🌍</span> My World</div>
+        <button id="welcomeLogout" class="btn btn-ghost" type="button">Log out</button>
+      </div>
+
+      <div class="welcome-hero">
+        <h1>Welcome, <span id="welcomeEmail"></span></h1>
+        <span id="welcomeRole" class="role-badge"></span>
+        <p class="welcome-tagline">Your personal photo world.</p>
+        <button id="goToPhotosBtn" class="btn btn-primary welcome-cta" type="button">📷 Go to Photos</button>
+      </div>
+
+      <section id="userAdmin" class="user-admin admin-only">
+        <div class="user-admin-head">
+          <h2>User accounts</h2>
+          <button id="refreshUsersBtn" class="icon-btn" title="Refresh" aria-label="Refresh users">🔄</button>
+        </div>
+        <ul id="userList" class="user-list"></ul>
+      </section>
+    </div>
+  </div>
+
   <header class="app-header">
     <div class="brand">
       <button id="menuToggle" class="icon-btn menu-toggle" aria-label="Toggle folders">☰</button>
@@ -60,6 +85,7 @@
       </select>
       <button id="uploadBtn" class="btn btn-primary admin-only" type="button">+ Upload</button>
       <div id="userBox" class="user-box" hidden>
+        <button id="homeBtn" class="btn btn-ghost" type="button">🏠 Home</button>
         <span id="userEmail" class="user-email"></span>
         <span id="roleBadge" class="role-badge"></span>
         <button id="logoutBtn" class="btn btn-ghost" type="button">Log out</button>
@@ -158,6 +184,20 @@
         <span class="folder-count"></span>
       </button>
       <button class="folder-del icon-btn admin-only" title="Delete folder" aria-label="Delete folder">🗑️</button>
+    </li>
+  </template>
+
+  <!-- User account row template -->
+  <template id="userRowTemplate">
+    <li class="user-row">
+      <div class="user-row-main">
+        <span class="user-row-email"></span>
+        <span class="user-row-role role-badge"></span>
+      </div>
+      <div class="user-row-actions">
+        <button class="btn btn-ghost user-role-toggle" type="button"></button>
+        <button class="btn btn-ghost user-delete" type="button">Delete</button>
+      </div>
     </li>
   </template>
 

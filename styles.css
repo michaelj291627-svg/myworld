@@ -805,3 +805,134 @@ body:not(.is-admin) .admin-only {
   background: rgba(51, 214, 166, 0.18);
   color: var(--accent);
 }
+
+/* Welcome screen */
+.welcome-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  overflow-y: auto;
+  background: radial-gradient(1000px 500px at 50% -10%, #1a1f3a 0%, var(--bg) 60%);
+}
+
+.welcome-screen[hidden] {
+  display: none;
+}
+
+.welcome-inner {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.welcome-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0 24px;
+}
+
+.welcome-brand {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.welcome-hero {
+  text-align: center;
+  padding: 40px 20px 48px;
+}
+
+.welcome-hero h1 {
+  margin: 0 0 10px;
+  font-size: 30px;
+}
+
+.welcome-hero #welcomeEmail {
+  color: var(--primary);
+}
+
+.welcome-tagline {
+  color: var(--text-dim);
+  margin: 14px 0 26px;
+}
+
+.welcome-cta {
+  font-size: 16px;
+  padding: 14px 28px;
+}
+
+/* User management */
+.user-admin {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: var(--shadow);
+}
+
+.user-admin-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.user-admin-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.user-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.user-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.user-row-email {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-row-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.user-row-actions .btn {
+  padding: 7px 12px;
+  font-size: 13px;
+}
+
+.user-delete:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.user-row-actions .btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

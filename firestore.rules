@@ -1,8 +1,10 @@
 rules_version = '2';
 
 // Firestore security rules for "My World".
-// Signed-in users can READ; only the admin email can WRITE.
-// Keep the admin email in sync with ADMIN_EMAILS in firebase-config.js.
+// - Signed-in users can READ photos/folders.
+// - Only admins can WRITE photos/folders and manage user accounts.
+// - Admin = the primary email below OR a user whose users/{uid}.role == 'admin'.
+// Keep the primary admin email in sync with ADMIN_EMAILS in firebase-config.js.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -10,8 +12,30 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isAdmin() {
+    function isPrimaryAdmin() {
       return isSignedIn() && request.auth.token.email == 'michaelvarghees@gmail.com';
+    }
+
+    function hasProfile() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function myRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isPrimaryAdmin() || (hasProfile() && myRole() == 'admin');
+    }
+
+    // User profiles hold email + role. Users create their own (as viewer);
+    // only admins can change roles or delete accounts.
+    match /users/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if isSignedIn()
+        && request.auth.uid == uid
+        && (request.resource.data.role == 'viewer' || isPrimaryAdmin());
+      allow update, delete: if isAdmin();
     }
 
     match /photos/{id} {
