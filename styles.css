@@ -813,6 +813,10 @@ body:not(.is-admin) .admin-only {
   z-index: 90;
   overflow-y: auto;
   background: radial-gradient(1000px 500px at 50% -10%, #1a1f3a 0%, var(--bg) 60%);
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  transition: background-image 0.6s ease-in-out;
 }
 
 .welcome-screen[hidden] {

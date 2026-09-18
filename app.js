@@ -711,13 +711,44 @@ function updateAuthUI() {
 
 /* ---------- Welcome navigation ---------- */
 
+// Home-page background images (rotated every minute for all users).
+const HOME_BACKGROUNDS = [
+  "silhouettes-family-walking-together-against-vibrant-colorful-background_1305360-6079.avif",
+  "family-four-is-walking-through-field-grass-with-beautiful-sunset-background-scene-is-peaceful-serene-as-family-enjoys-their-time-together-nature_190086-11756.avif",
+];
+const HOME_BG_OVERLAY = "linear-gradient(rgba(15,18,32,0.74), rgba(15,18,32,0.9))";
+let homeBgIndex = 0;
+let homeBgTimer = null;
+
+function applyHomeBg() {
+  const src = encodeURI(HOME_BACKGROUNDS[homeBgIndex]);
+  el.welcomeScreen.style.backgroundImage = `${HOME_BG_OVERLAY}, url("${src}")`;
+}
+
+function startHomeBgRotation() {
+  homeBgIndex = Math.floor(Math.random() * HOME_BACKGROUNDS.length);
+  applyHomeBg();
+  clearInterval(homeBgTimer);
+  homeBgTimer = setInterval(() => {
+    homeBgIndex = (homeBgIndex + 1) % HOME_BACKGROUNDS.length;
+    applyHomeBg();
+  }, 60000);
+}
+
+function stopHomeBgRotation() {
+  clearInterval(homeBgTimer);
+  homeBgTimer = null;
+}
+
 function showWelcome() {
   el.welcomeScreen.hidden = false;
+  startHomeBgRotation();
   if (isAdmin) loadUsers();
 }
 
 function goToPhotos() {
   el.welcomeScreen.hidden = true;
+  stopHomeBgRotation();
 }
 
 /* ---------- User accounts (admin) ---------- */
@@ -908,6 +939,7 @@ if (isConfigured) {
       el.folderList.innerHTML = "";
       el.userList.innerHTML = "";
       el.welcomeScreen.hidden = true;
+      stopHomeBgRotation();
       updateAuthUI();
       showAuthTab("login");
     }
